@@ -9,6 +9,15 @@ module.exports = {
         primaryKey: true,
         type: Sequelize.INTEGER
       },
+      IDgroup:{
+        type: Sequelize.INTEGER,
+        references: {
+          model: 'groups',
+          key: 'IDgroup'
+        },
+        onUpdate: 'CASCADE',
+        onDelete: 'SET NULL'
+      },
       name: {
         type: Sequelize.STRING
       },

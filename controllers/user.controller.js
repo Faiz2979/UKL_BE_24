@@ -10,6 +10,7 @@ exports.addUser = async (request, response) => {
         let newUser = {
             name: request.body.name,
             role: request.body.role,
+            IDgroup: request.body.IDgroup,
             username: request.body.username,
             password: hash(request.body.password), // Hash password
             createdAt: new Date(),
@@ -103,7 +104,7 @@ exports.updateUser = async (request, response) => {
         password: hash(request.body.password),
         updatedAt: new Date()
     }
-
+    
     let IDuser = request.params.IDuser;
     userModel.update(dataUser, {
         where: {

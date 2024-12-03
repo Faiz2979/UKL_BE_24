@@ -3,78 +3,76 @@ const modelKehadiran = require('../models/index').kehadiran;
 const modelGroup = require('../models/index').group;
 const { Op } = require('sequelize');
 
-const formattedDate = (date) => {
-    let today = new Date(date);
-    let dd = String(today.getDate()).padStart(2, '0');
-    let mm = String(today.getMonth() + 1).padStart(2, '0');
-    let yyyy = today.getFullYear();
-    return `${yyyy}-${mm}-${dd}`;
-};
-
-const formattedTime = (date) => {
-    let today = new Date(date);
-    let hh = String(today.getHours()).padStart(2, '0');
-    let mm = String(today.getMinutes()).padStart(2, '0');
-    let ss = String(today.getSeconds()).padStart(2, '0');
-    return `${hh}:${mm}:${ss}`;
-};
 
 
+const moment = require('moment');
 
 exports.Presensi = async (request, response) => {
     try {
-        const validStatus = ["HADIR", "IZIN", "SAKIT", "ALPHA"];
-        const { IDuser, status } = request.body;
+        const { IDuser, date, time, status } = request.body;
 
-        if (!validStatus.includes(status.toUpperCase())) {
-            return response.json({
+        //Validasi User
+        const userExists = await modelUser.findOne({ where: { IDuser } });
+        if (!userExists) {
+        return response.status(400).json({
+        success: false,
+        message: "IDuser tidak ditemukan.",
+        });
+}
+        // Validasi waktu
+        if (!moment(time, "HH:mm:ss", true).isValid()) {
+            return response.status(400).json({
                 success: false,
-                message: "Status tidak valid (harus HADIR, IZIN, SAKIT, atau ALPHA)"
+                message: "Invalid time format. Use HH:mm:ss.",
             });
         }
 
         const dataUser = {
             IDuser,
-            date: formattedDate(new Date()),
-            time: formattedTime(new Date()),
-            status: status.toUpperCase(),
+            date: moment(date, "YYYY-MM-DD").format("YYYY-MM-DD"), // Format date
+            time: moment(time, "HH:mm:ss").format("HH:mm:ss"), // Format time
+            status,
             createdAt: new Date(),
-            updatedAt: new Date()
+            updatedAt: new Date(),
         };
 
         const result = await modelKehadiran.create(dataUser);
+
         return response.json({
             success: true,
-            data: result,
-            message: "Presensi berhasil"
+            data: {
+                IDkehadiran: result.IDkehadiran,
+                IDuser: result.IDuser,
+                date: moment(result.date,"YYYY-MM-DD").format("YYYY-MM-DD"),
+                time: result.time,
+                status: result.status,
+            },
+            message: "Presensi berhasil",
         });
     } catch (error) {
-        return response.json({
+        return response.status(500).json({
             success: false,
+            message: "Presensi gagal",
             error: error.message,
-            message: "Presensi gagal"
         });
     }
 };
-
 
 
 exports.getAllPresensi = async (request, response) => {
-    try {
-        const presensi = await modelKehadiran.findAll();
-        return response.json({
-            success: true,
-            data: presensi,
-            message: "Semua presensi berhasil dimuat"
-        });
-    } catch (error) {
-        return response.json({
-            success: false,
-            error: error.message,
-            message: "Gagal memuat presensi"
-        });
+    let presensi = await modelKehadiran.findAll();
+    let displayData={
+        IDkehadiran: presensi.IDkehadiran,
+        date:moment(presensi.date, "YYYY-MM-DD").format("YYYY-MM-DD"),
+        time: moment(presensi.time, "HH:mm:ss").format("HH:mm:ss"),
+        status:presensi.status
     }
-};
+    return response.json({
+        success: true,
+        data: displayData,
+        message: "Semua presensi berhasil dimuat"
+    });
+}
 
 
 
@@ -108,21 +106,40 @@ exports.findPresensi = async (request, response) => {
 
 exports.Summary = async (request, response) => {
     try {
-        const { IDuser } = request.params;
+        const { IDuser, month } = request.params; // Ambil IDuser dan bulan dari parameter
 
+        // Validasi parameter bulan
+        if (!moment(month, "MM", true).isValid()) {
+            return response.status(400).json({
+                success: false,
+                message: "Format bulan tidak valid. Gunakan format MM (contoh: 01 untuk Januari).",
+            });
+        }
+
+        // Ambil range tanggal awal dan akhir bulan berdasarkan parameter
+        const startDate = moment().month(month - 1).startOf('month').format("YYYY-MM-DD");
+        const endDate = moment().month(month - 1).endOf('month').format("YYYY-MM-DD");
+
+        // Ambil data presensi berdasarkan IDuser dan rentang tanggal
         const presensi = await modelKehadiran.findAll({
-            where: { IDuser }
+            where: {
+                IDuser,
+                date: {
+                    [Op.between]: [startDate, endDate],
+                },
+            },
         });
 
         if (presensi.length === 0) {
             return response.json({
                 success: false,
-                message: "Tidak ada data presensi untuk pengguna ini"
+                message: `Tidak ada data presensi untuk bulan ${moment(startDate).format("MMMM YYYY")}`,
             });
         }
 
+        // Proses data untuk mendapatkan summary
         let hadir = 0, izin = 0, sakit = 0, alpha = 0;
-        presensi.forEach(p => {
+        presensi.forEach((p) => {
             switch (p.status.toUpperCase()) {
                 case "HADIR": hadir++; break;
                 case "IZIN": izin++; break;
@@ -131,60 +148,54 @@ exports.Summary = async (request, response) => {
             }
         });
 
-        const month = formattedDate(presensi[0].date).slice(0, 7);
+        const monthName = moment(startDate).format("MMMM YYYY");
 
         return response.json({
             status: "success",
             data: {
                 IDuser,
-                month,
-                attendance_summary: { hadir, izin, sakit, alpha }
-            }
+                month: monthName,
+                attendance_summary: { hadir, izin, sakit, alpha },
+            },
         });
     } catch (error) {
-        return response.json({
+        return response.status(500).json({
             success: false,
             error: error.message,
-            message: "Gagal menghitung summary"
+            message: "Gagal menghitung summary",
         });
     }
 };
+
 
 
 
 
 exports.findByID = async (request, response) => {
-    try {
-        const { IDuser } = request.params;
-
-        const presensi = await modelKehadiran.findAll({
-            where: { IDuser }
-        });
-
-        if (presensi.length === 0) {
-            return response.json({
-                success: false,
-                message: "Tidak ada data presensi untuk pengguna ini"
-            });
+    let IDuser = request.params.IDuser;
+    let presensi = await modelKehadiran.findAll({
+        where: {
+            IDuser: IDuser
         }
+    });
 
-        return response.json({
-            success: true,
-            data: presensi,
-            message: "Data presensi berhasil dimuat"
-        });
-    } catch (error) {
-        return response.json({
-            success: false,
-            error: error.message,
-            message: "Gagal memuat data presensi"
-        });
-    }
-};
+    let dataKehadiran = presensi.map(presensi => {
+        return {
+            IDkehadiran: presensi.IDkehadiran,
+            date: moment(presensi.date, "YYYY-MM-DD").format("YYYY-MM-DD"),
+            time: moment(presensi.time, "HH:mm:ss").format("HH:mm:ss"),
+            status: presensi.status
+        };
+    });
+    return response.json({
+        status: "success",
+        data: dataKehadiran
+    });
+}
 
 
 exports.Analysis = async (request, response) => {
-    let { startDate, endDate, group_by } = request.body; // Sesuaikan nama variabel
+    let { startDate, endDate, nama_group } = request.body; // Sesuaikan nama variabel
 
     try {
         // Ambil data presensi dengan relasi user dan grup
@@ -197,13 +208,13 @@ exports.Analysis = async (request, response) => {
             include: [
                 {
                     model: modelUser,
-                    attributes: ['id', 'name'],
+                    attributes: ['IDuser', 'name'],
                     include: [
                         {
                             model: modelGroup,
                             attributes: ['nama_group'], // Ambil kolom nama_group
                             where: {
-                                nama_group: group_by // Filter berdasarkan nama_group
+                                nama_group: nama_group // Filter berdasarkan nama_group
                             }
                         }
                     ]
@@ -263,8 +274,8 @@ exports.Analysis = async (request, response) => {
             status: "success",
             data: {
                 analysis_period: {
-                    start_date: startDate,
-                    end_date: endDate
+                    start_date: moment(startDate, "YYYY-MM-DD").format("YYYY-MM-DD"),
+                    end_date: moment(endDate, "YYYY-MM-DD").format("YYYY-MM-DD")
                 },
                 grouped_analysis: groupedAnalysis
             }

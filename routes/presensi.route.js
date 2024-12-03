@@ -7,7 +7,7 @@ app.use(express.json());
 
 app.post('/', presensiController.Presensi);
 app.get('/history/:IDuser',[authorize], presensiController.findByID);
-app.get('/summary/:IDuser',[authorize], presensiController.Summary);
+app.get('/summary/:IDuser/:month',[authorize], presensiController.Summary);
 app.post('/analysis',[authorize], presensiController.Analysis);
 module.exports = app;
 
